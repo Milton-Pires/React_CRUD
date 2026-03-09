@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "nome-do-seu-app",
-    "slug": "nome-do-seu-app",
+    "name": "CRUD-REACT",
+    "slug": "CRUD-REACT",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
