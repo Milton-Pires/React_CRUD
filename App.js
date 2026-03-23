@@ -1,410 +1,266 @@
 import React, { useState, useEffect } from "react";
 import {
-View,
-Text,
-TextInput,
-TouchableOpacity,
-FlatList,
-StyleSheet,
-Switch
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  FlatList,
+  StyleSheet,
+  Switch,
+  Image,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform
 } from "react-native";
 
-import { db, auth } from "./firebaseConfig";
-
+import { db, auth, storage } from "./firebaseConfig";
 import { ref, push, onValue, update, remove } from "firebase/database";
-
 import {
-signInWithEmailAndPassword,
-createUserWithEmailAndPassword,
-onAuthStateChanged,
-signOut
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut
 } from "firebase/auth";
+import { ref as sRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import * as ImagePicker from 'expo-image-picker';
 
-export default function App(){
+const lightTheme = { bg: "#f4f6fb", card: "#ffffff", text: "#111" };
+const darkTheme = { bg: "#121212", card: "#1e1e1e", text: "#ffffff" };
 
-const [user,setUser] = useState(null);
 
-const [email,setEmail] = useState("");
-const [password,setPassword] = useState("");
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [tasks, setTasks] = useState([]);
+  const [newTask, setNewTask] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [editText, setEditText] = useState("");
+  const [dark, setDark] = useState(false);
+  const [imageUri, setImageUri] = useState(null);
+  const [loading, setLoading] = useState(false);
+  
+  
 
-const [tasks,setTasks] = useState([]);
-const [newTask,setNewTask] = useState("");
+  const theme = dark ? darkTheme : lightTheme;
 
-const [editId,setEditId] = useState(null);
-const [editText,setEditText] = useState("");
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
+    return unsubscribe;
+  }, []);
 
-const [dark,setDark] = useState(false);
+  useEffect(() => {
+    if (!user) return;
+    const tasksRef = ref(db, `tasks/${user.uid}`);
+    return onValue(tasksRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const list = Object.keys(data).map(id => ({ id, ...data[id] }));
+        setTasks(list);
+      } else {
+        setTasks([]);
+      }
+    });
+  }, [user]);
 
-const theme = dark ? darkTheme : lightTheme;
+  const login = async () => {
+    try { await signInWithEmailAndPassword(auth, email, password); } 
+    catch { alert("Erro no login"); }
+  };
 
-useEffect(()=>{
+  const register = async () => {
+    try { await createUserWithEmailAndPassword(auth, email, password); } 
+    catch { alert("Erro ao registrar"); }
+  };
+  
 
-const unsubscribe = onAuthStateChanged(auth,(u)=>{
-setUser(u);
-});
+  const logout = () => signOut(auth);
 
-return unsubscribe;
+  const pickImage = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.5,
+    });
+    if (!result.canceled) setImageUri(result.assets[0].uri);
+  };
 
-},[]);
+  const createTask = async () => {
+    if (!newTask) return;
+    setLoading(true);
+    let url = null;
+    if (imageUri) {
+      try {
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        const filename = `${Date.now()}.jpg`;
+        const storageRef = sRef(storage, `images/${user.uid}/${filename}`);
+        await uploadBytes(storageRef, blob);
+        url = await getDownloadURL(storageRef);
+      } catch (e) { console.log("Erro no upload", e); }
+    }
+    push(ref(db, `tasks/${user.uid}`), {
+      title: newTask,
+      completed: false,
+      imageUrl: url
+    });
+    setNewTask("");
+    setImageUri(null);
+    setLoading(false);
+  };
 
-useEffect(()=>{
+  const toggleComplete = (id, status) => {
+    update(ref(db, `tasks/${user.uid}/${id}`), { completed: !status });
+  };
 
-if(!user) return;
+  const renameTask = (id) => {
+    if(!editText) return setEditId(null);
+    update(ref(db, `tasks/${user.uid}/${id}`), { title: editText });
+    setEditId(null);
+    setEditText("");
+  };
 
-const tasksRef = ref(db,`tasks/${user.uid}`);
+  const deleteTask = (id) => remove(ref(db, `tasks/${user.uid}/${id}`));
 
-return onValue(tasksRef,(snapshot)=>{
+  if (!user) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.bg }]}>
+        <Text style={[styles.title, { color: theme.text, textAlign: 'center', marginBottom: 30 }]}>Login</Text>
+        <TextInput
+          placeholder="Email"
+          placeholderTextColor="#888"
+          style={[styles.input, { backgroundColor: theme.card, color: theme.text }]}
+          value={email}
+          onChangeText={setEmail}
+        />
+        <TextInput
+          placeholder="Senha"
+          placeholderTextColor="#888"
+          secureTextEntry
+          style={[styles.input, { backgroundColor: theme.card, color: theme.text }]}
+          value={password}
+          onChangeText={setPassword}
+        />
+        <TouchableOpacity style={styles.button} onPress={login}>
+          <Text style={styles.buttonText}>Entrar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.secondary} onPress={register}>
+          <Text style={{ color: theme.text }}>Criar conta</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
-const data = snapshot.val();
+  return (
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={[styles.container, { backgroundColor: theme.bg }]}
+    >
+      <View style={styles.header}>
+        <Text style={[styles.title, { color: theme.text }]}>Minhas Tarefas</Text>
+        <View style={styles.row}>
+          <Switch value={dark} onValueChange={setDark} />
+          <TouchableOpacity onPress={logout}>
+            <Text style={{ color: "red", marginLeft: 10, fontWeight: 'bold' }}>Sair</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
-if(data){
+      <View style={styles.row}>
+        <TextInput
+          placeholder="Nova tarefa..."
+          placeholderTextColor="#888"
+          style={[styles.input, { flex: 1, backgroundColor: theme.card, color: theme.text }]}
+          value={newTask}
+          onChangeText={setNewTask}
+        />
+        <TouchableOpacity onPress={pickImage} style={styles.imageIcon}>
+          <Text style={{ fontSize: 24 }}>{imageUri ? "✅" : "📷"}</Text>
+        </TouchableOpacity>
+      </View>
 
-const list = Object.keys(data).map(id=>({
-id,
-...data[id]
-}));
+      <FlatList
+        data={tasks}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        renderItem={({ item }) => (
+          <View style={[styles.task, { backgroundColor: theme.card }]}>
+            {editId === item.id ? (
+              <View style={styles.editRow}>
+                <TextInput
+                  style={[styles.input, { flex: 1, marginBottom: 0, backgroundColor: theme.bg, color: theme.text }]}
+                  value={editText}
+                  onChangeText={setEditText}
+                  autoFocus
+                />
+                <TouchableOpacity style={styles.smallButton} onPress={() => renameTask(item.id)}>
+                  <Text style={styles.buttonText}>OK</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                <View style={{ flex: 1 }}>
+                  <Text style={[
+                    styles.taskText, 
+                    { color: theme.text },
+                    item.completed && styles.completed
+                  ]}>
+                    {item.title}
+                  </Text>
+                  {item.imageUrl && (
+                    <Image source={{ uri: item.imageUrl }} style={styles.taskImage} />
+                  )}
+                </View>
 
-setTasks(list);
+                <View style={styles.actions}>
+                  <TouchableOpacity style={styles.complete} onPress={() => toggleComplete(item.id, item.completed)}>
+                    <Text>✔</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.edit} onPress={() => { setEditId(item.id); setEditText(item.title); }}>
+                    <Text>✏</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.delete} onPress={() => deleteTask(item.id)}>
+                    <Text style={{ color: "white" }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        )}
+      />
 
-}else{
-
-setTasks([]);
-
+      <TouchableOpacity 
+        style={styles.fab} 
+        onPress={createTask} 
+        disabled={loading}
+      >
+        {loading ? <ActivityIndicator color="white" /> : <Text style={styles.fabText}>+</Text>}
+      </TouchableOpacity>
+    </KeyboardAvoidingView>
+  );
 }
-
-});
-
-},[user]);
-
-const login = async()=>{
-try{
-await signInWithEmailAndPassword(auth,email,password);
-}catch{
-alert("Erro no login");
-}
-};
-
-const register = async()=>{
-try{
-await createUserWithEmailAndPassword(auth,email,password);
-}catch{
-alert("Erro ao registrar");
-}
-};
-
-const logout = ()=>{
-signOut(auth);
-};
-
-const createTask = ()=>{
-
-if(!newTask) return;
-
-push(ref(db,`tasks/${user.uid}`),{
-title:newTask,
-completed:false
-});
-
-setNewTask("");
-
-};
-
-const toggleComplete = (id,status)=>{
-
-update(ref(db,`tasks/${user.uid}/${id}`),{
-completed:!status
-});
-
-};
-
-const renameTask = (id)=>{
-
-update(ref(db,`tasks/${user.uid}/${id}`),{
-title:editText
-});
-
-setEditId(null);
-setEditText("");
-
-};
-
-const deleteTask = (id)=>{
-remove(ref(db,`tasks/${user.uid}/${id}`));
-};
-
-if(!user){
-
-return(
-
-<View style={[styles.container,{backgroundColor:theme.bg}]}>
-
-<Text style={[styles.title,{color:theme.text}]}>Login</Text>
-
-<TextInput
-placeholder="Email"
-placeholderTextColor="#888"
-style={[styles.input,{backgroundColor:theme.card,color:theme.text}]}
-value={email}
-onChangeText={setEmail}
-/>
-
-<TextInput
-placeholder="Senha"
-placeholderTextColor="#888"
-secureTextEntry
-style={[styles.input,{backgroundColor:theme.card,color:theme.text}]}
-value={password}
-onChangeText={setPassword}
-/>
-
-<TouchableOpacity style={styles.button} onPress={login}>
-<Text style={styles.buttonText}>Entrar</Text>
-</TouchableOpacity>
-
-<TouchableOpacity style={styles.secondary} onPress={register}>
-<Text style={{color:theme.text}}>Criar conta</Text>
-</TouchableOpacity>
-
-</View>
-
-);
-
-}
-
-return(
-
-<View style={[styles.container,{backgroundColor:theme.bg}]}>
-
-<View style={styles.header}>
-
-<Text style={[styles.title,{color:theme.text}]}>Minhas Tarefas</Text>
-
-<View style={{flexDirection:"row",alignItems:"center"}}>
-
-<Switch
-value={dark}
-onValueChange={setDark}
-/>
-
-<TouchableOpacity onPress={logout}>
-<Text style={{color:"red",marginLeft:10}}>Sair</Text>
-</TouchableOpacity>
-
-</View>
-
-</View>
-
-<TextInput
-placeholder="Nova tarefa..."
-placeholderTextColor="#888"
-style={[styles.input,{backgroundColor:theme.card,color:theme.text}]}
-value={newTask}
-onChangeText={setNewTask}
-/>
-
-<FlatList
-data={tasks}
-keyExtractor={(item)=>item.id}
-renderItem={({item})=>(
-
-<View style={[styles.task,{backgroundColor:theme.card}]}>
-
-{editId===item.id?(
-<>
-<TextInput
-style={[styles.input,{backgroundColor:theme.bg,color:theme.text}]}
-value={editText}
-onChangeText={setEditText}
-/>
-
-<TouchableOpacity
-style={styles.smallButton}
-onPress={()=>renameTask(item.id)}
->
-<Text style={styles.buttonText}>Salvar</Text>
-</TouchableOpacity>
-</>
-):(
-<>
-
-<Text
-style={[
-styles.taskText,
-{color:theme.text},
-item.completed && styles.completed
-]}
->
-{item.title}
-</Text>
-
-<View style={styles.actions}>
-
-<TouchableOpacity
-style={styles.complete}
-onPress={()=>toggleComplete(item.id,item.completed)}
->
-<Text>✔</Text>
-</TouchableOpacity>
-
-<TouchableOpacity
-style={styles.edit}
-onPress={()=>{
-setEditId(item.id);
-setEditText(item.title);
-}}
->
-<Text>✏</Text>
-</TouchableOpacity>
-
-<TouchableOpacity
-style={styles.delete}
-onPress={()=>deleteTask(item.id)}
->
-<Text style={{color:"white"}}>✕</Text>
-</TouchableOpacity>
-
-</View>
-
-</>
-)}
-
-</View>
-
-)}
-/>
-
-<TouchableOpacity
-style={styles.fab}
-onPress={createTask}
->
-<Text style={styles.fabText}>+</Text>
-</TouchableOpacity>
-
-</View>
-
-);
-
-}
-
-const lightTheme={
-bg:"#f4f6fb",
-card:"#ffffff",
-text:"#111"
-};
-
-const darkTheme={
-bg:"#121212",
-card:"#1e1e1e",
-text:"#ffffff"
-};
 
 const styles = StyleSheet.create({
-
-container:{
-flex:1,
-padding:20
-},
-
-header:{
-flexDirection:"row",
-justifyContent:"space-between",
-alignItems:"center",
-marginBottom:20
-},
-
-title:{
-fontSize:28,
-fontWeight:"bold"
-},
-
-input:{
-padding:12,
-borderRadius:10,
-marginBottom:10
-},
-
-button:{
-backgroundColor:"#6366f1",
-padding:12,
-borderRadius:10,
-alignItems:"center",
-marginBottom:10
-},
-
-smallButton:{
-backgroundColor:"#6366f1",
-padding:8,
-borderRadius:8,
-marginTop:5
-},
-
-buttonText:{
-color:"white",
-fontWeight:"bold"
-},
-
-secondary:{
-alignItems:"center",
-marginTop:10
-},
-
-task:{
-padding:15,
-borderRadius:12,
-marginBottom:10,
-flexDirection:"row",
-justifyContent:"space-between",
-alignItems:"center"
-},
-
-taskText:{
-fontSize:16
-},
-
-completed:{
-textDecorationLine:"line-through",
-opacity:0.5
-},
-
-actions:{
-flexDirection:"row",
-gap:8
-},
-
-complete:{
-backgroundColor:"#22c55e",
-padding:8,
-borderRadius:6
-},
-
-edit:{
-backgroundColor:"#facc15",
-padding:8,
-borderRadius:6
-},
-
-delete:{
-backgroundColor:"#ef4444",
-padding:8,
-borderRadius:6
-},
-
-fab:{
-position:"absolute",
-bottom:30,
-right:30,
-backgroundColor:"#6366f1",
-width:60,
-height:60,
-borderRadius:30,
-justifyContent:"center",
-alignItems:"center",
-elevation:5
-},
-
-fabText:{
-color:"white",
-fontSize:30
-}
-
+  container: { flex: 1, padding: 20, paddingTop: 50 },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
+  title: { fontSize: 28, fontWeight: "bold" },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  editRow: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  imageIcon: { marginLeft: 10, marginBottom: 10 },
+  input: { padding: 12, borderRadius: 10, marginBottom: 10 },
+  button: { backgroundColor: "#6366f1", padding: 12, borderRadius: 10, alignItems: "center", marginBottom: 10 },
+  smallButton: { backgroundColor: "#6366f1", padding: 10, borderRadius: 8, marginLeft: 10 },
+  buttonText: { color: "white", fontWeight: "bold" },
+  secondary: { alignItems: "center", marginTop: 10 },
+  task: { padding: 15, borderRadius: 12, marginBottom: 10, flexDirection: "row", alignItems: "center", minHeight: 60 },
+  taskText: { fontSize: 16 },
+  taskImage: { width: '100%', height: 150, borderRadius: 8, marginTop: 10 },
+  completed: { textDecorationLine: "line-through", opacity: 0.5 },
+  actions: { flexDirection: "row", gap: 8, marginLeft: 10 },
+  complete: { backgroundColor: "#22c55e", padding: 8, borderRadius: 6 },
+  edit: { backgroundColor: "#facc15", padding: 8, borderRadius: 6 },
+  delete: { backgroundColor: "#ef4444", padding: 8, borderRadius: 6 },
+  fab: { position: "absolute", bottom: 30, right: 30, backgroundColor: "#6366f1", width: 60, height: 60, borderRadius: 30, justifyContent: "center", alignItems: "center", elevation: 5 },
+  fabText: { color: "white", fontSize: 30 }
 });
