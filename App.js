@@ -1,32 +1,20 @@
 import React, { useState, useEffect } from "react";
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  FlatList,
-  StyleSheet,
-  Switch,
-  Image,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform
+  View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet,
+  Switch, Image, ActivityIndicator, KeyboardAvoidingView, Platform
 } from "react-native";
 
 import { db, auth, storage } from "./firebaseConfig";
 import { ref, push, onValue, update, remove } from "firebase/database";
 import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  onAuthStateChanged,
-  signOut
+  signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  onAuthStateChanged, signOut
 } from "firebase/auth";
 import { ref as sRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import * as ImagePicker from 'expo-image-picker';
 
 const lightTheme = { bg: "#f4f6fb", card: "#ffffff", text: "#111" };
 const darkTheme = { bg: "#121212", card: "#1e1e1e", text: "#ffffff" };
-
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -37,10 +25,10 @@ export default function App() {
   const [editId, setEditId] = useState(null);
   const [editText, setEditText] = useState("");
   const [dark, setDark] = useState(false);
+  
   const [imageUri, setImageUri] = useState(null);
+  const [imageDims, setImageDims] = useState({ width: 1, height: 1 });
   const [loading, setLoading] = useState(false);
-  
-  
 
   const theme = dark ? darkTheme : lightTheme;
 
@@ -57,9 +45,7 @@ export default function App() {
       if (data) {
         const list = Object.keys(data).map(id => ({ id, ...data[id] }));
         setTasks(list);
-      } else {
-        setTasks([]);
-      }
+      } else { setTasks([]); }
     });
   }, [user]);
 
@@ -72,24 +58,31 @@ export default function App() {
     try { await createUserWithEmailAndPassword(auth, email, password); } 
     catch { alert("Erro ao registrar"); }
   };
-  
 
   const logout = () => signOut(auth);
 
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.5,
+      allowsEditing: false,
+      quality: 0.7,
     });
-    if (!result.canceled) setImageUri(result.assets[0].uri);
+
+    if (!result.canceled) {
+      setImageUri(result.assets[0].uri);
+      setImageDims({ 
+        width: result.assets[0].width, 
+        height: result.assets[0].height 
+      });
+    }
   };
 
   const createTask = async () => {
     if (!newTask) return;
     setLoading(true);
     let url = null;
+    let ratio = 1;
+
     if (imageUri) {
       try {
         const response = await fetch(imageUri);
@@ -98,13 +91,17 @@ export default function App() {
         const storageRef = sRef(storage, `images/${user.uid}/${filename}`);
         await uploadBytes(storageRef, blob);
         url = await getDownloadURL(storageRef);
+        ratio = imageDims.width / imageDims.height;
       } catch (e) { console.log("Erro no upload", e); }
     }
+
     push(ref(db, `tasks/${user.uid}`), {
       title: newTask,
       completed: false,
-      imageUrl: url
+      imageUrl: url,
+      aspectRatio: ratio 
     });
+
     setNewTask("");
     setImageUri(null);
     setLoading(false);
@@ -125,22 +122,17 @@ export default function App() {
 
   if (!user) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.bg }]}>
+      <View style={[styles.container, { backgroundColor: theme.bg, justifyContent: 'center' }]}>
         <Text style={[styles.title, { color: theme.text, textAlign: 'center', marginBottom: 30 }]}>Login</Text>
         <TextInput
-          placeholder="Email"
-          placeholderTextColor="#888"
+          placeholder="Email" placeholderTextColor="#888"
           style={[styles.input, { backgroundColor: theme.card, color: theme.text }]}
-          value={email}
-          onChangeText={setEmail}
+          value={email} onChangeText={setEmail}
         />
         <TextInput
-          placeholder="Senha"
-          placeholderTextColor="#888"
-          secureTextEntry
+          placeholder="Senha" placeholderTextColor="#888" secureTextEntry
           style={[styles.input, { backgroundColor: theme.card, color: theme.text }]}
-          value={password}
-          onChangeText={setPassword}
+          value={password} onChangeText={setPassword}
         />
         <TouchableOpacity style={styles.button} onPress={login}>
           <Text style={styles.buttonText}>Entrar</Text>
@@ -162,18 +154,16 @@ export default function App() {
         <View style={styles.row}>
           <Switch value={dark} onValueChange={setDark} />
           <TouchableOpacity onPress={logout}>
-            <Text style={{ color: "red", marginLeft: 10, fontWeight: 'bold' }}>Sair</Text>
+            <Text style={{ color: "#ef4444", marginLeft: 10, fontWeight: 'bold' }}>Sair</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       <View style={styles.row}>
         <TextInput
-          placeholder="Nova tarefa..."
-          placeholderTextColor="#888"
+          placeholder="Nova tarefa..." placeholderTextColor="#888"
           style={[styles.input, { flex: 1, backgroundColor: theme.card, color: theme.text }]}
-          value={newTask}
-          onChangeText={setNewTask}
+          value={newTask} onChangeText={setNewTask}
         />
         <TouchableOpacity onPress={pickImage} style={styles.imageIcon}>
           <Text style={{ fontSize: 24 }}>{imageUri ? "✅" : "📷"}</Text>
@@ -189,10 +179,8 @@ export default function App() {
             {editId === item.id ? (
               <View style={styles.editRow}>
                 <TextInput
-                  style={[styles.input, { flex: 1, marginBottom: 0, backgroundColor: theme.bg, color: theme.text }]}
-                  value={editText}
-                  onChangeText={setEditText}
-                  autoFocus
+                  style={[styles.input, { flex: 1, color: theme.text, marginBottom: 0 }]}
+                  value={editText} onChangeText={setEditText} autoFocus
                 />
                 <TouchableOpacity style={styles.smallButton} onPress={() => renameTask(item.id)}>
                   <Text style={styles.buttonText}>OK</Text>
@@ -209,16 +197,20 @@ export default function App() {
                     {item.title}
                   </Text>
                   {item.imageUrl && (
-                    <Image source={{ uri: item.imageUrl }} style={styles.taskImage} />
+                    <Image 
+                      source={{ uri: item.imageUrl }} 
+                      // O segredo está no style abaixo: maxWidth e width: '100%'
+                      style={[styles.taskImage, { aspectRatio: item.aspectRatio || 1 }]} 
+                    />
                   )}
                 </View>
 
                 <View style={styles.actions}>
                   <TouchableOpacity style={styles.complete} onPress={() => toggleComplete(item.id, item.completed)}>
-                    <Text>✔</Text>
+                    <Text style={{ color: 'white' }}>✔</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.edit} onPress={() => { setEditId(item.id); setEditText(item.title); }}>
-                    <Text>✏</Text>
+                    <Text style={{ color: 'white' }}>✏</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.delete} onPress={() => deleteTask(item.id)}>
                     <Text style={{ color: "white" }}>✕</Text>
@@ -230,11 +222,7 @@ export default function App() {
         )}
       />
 
-      <TouchableOpacity 
-        style={styles.fab} 
-        onPress={createTask} 
-        disabled={loading}
-      >
+      <TouchableOpacity style={styles.fab} onPress={createTask} disabled={loading}>
         {loading ? <ActivityIndicator color="white" /> : <Text style={styles.fabText}>+</Text>}
       </TouchableOpacity>
     </KeyboardAvoidingView>
@@ -253,11 +241,18 @@ const styles = StyleSheet.create({
   smallButton: { backgroundColor: "#6366f1", padding: 10, borderRadius: 8, marginLeft: 10 },
   buttonText: { color: "white", fontWeight: "bold" },
   secondary: { alignItems: "center", marginTop: 10 },
-  task: { padding: 15, borderRadius: 12, marginBottom: 10, flexDirection: "row", alignItems: "center", minHeight: 60 },
-  taskText: { fontSize: 16 },
-  taskImage: { width: '100%', height: 150, borderRadius: 8, marginTop: 10 },
+  task: { padding: 15, borderRadius: 12, marginBottom: 10, flexDirection: "row", alignItems: "flex-start", minHeight: 60 },
+  taskText: { fontSize: 16, fontWeight: '500' },
+  taskImage: { 
+    width: '100%', 
+    maxWidth: 150, // 👈 Ajuste este valor para controlar o tamanho máximo (ex: 150px)
+    borderRadius: 8, 
+    marginTop: 10,
+    backgroundColor: '#eee',
+    resizeMode: 'contain' // 👈 Garante que a imagem caiba inteira no espaço
+  },
   completed: { textDecorationLine: "line-through", opacity: 0.5 },
-  actions: { flexDirection: "row", gap: 8, marginLeft: 10 },
+  actions: { flexDirection: "row", gap: 8, marginLeft: 10, marginTop: 5 },
   complete: { backgroundColor: "#22c55e", padding: 8, borderRadius: 6 },
   edit: { backgroundColor: "#facc15", padding: 8, borderRadius: 6 },
   delete: { backgroundColor: "#ef4444", padding: 8, borderRadius: 6 },
