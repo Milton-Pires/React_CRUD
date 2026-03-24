@@ -79,21 +79,30 @@ export default function App() {
 
   const createTask = async () => {
     if (!newTask) return;
-    setLoading(true);
-    let url = null;
-    let ratio = 1;
+  setLoading(true);
+  let url = null;
 
-    if (imageUri) {
-      try {
-        const response = await fetch(imageUri);
-        const blob = await response.blob();
-        const filename = `${Date.now()}.jpg`;
-        const storageRef = sRef(storage, `images/${user.uid}/${filename}`);
-        await uploadBytes(storageRef, blob);
-        url = await getDownloadURL(storageRef);
-        ratio = imageDims.width / imageDims.height;
-      } catch (e) { console.log("Erro no upload", e); }
+  if (imageUri) {
+    try {
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+      
+      // 🔍 Verificação local antes de gastar internet
+      if (blob.size > 5 * 1024 * 1024) {
+        alert("A imagem é muito pesada (limite 5MB).");
+        setLoading(false);
+        return;
+      }
+
+      const filename = `${Date.now()}.jpg`;
+      const storageRef = sRef(storage, `images/${user.uid}/${filename}`);
+      await uploadBytes(storageRef, blob);
+      url = await getDownloadURL(storageRef);
+    } catch (e) { 
+      console.log("Erro no upload", e);
+      alert("Falha no upload. Talvez o arquivo seja grande demais.");
     }
+  }
 
     push(ref(db, `tasks/${user.uid}`), {
       title: newTask,
