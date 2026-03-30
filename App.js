@@ -4,7 +4,7 @@ import {
   Switch, Image, ActivityIndicator, KeyboardAvoidingView, Platform
 } from "react-native";
 
-import { db, auth, storage } from "./firebaseConfig";
+import { db, auth, storage, remoteConfig } from "./firebaseConfig";
 import { ref, push, onValue, update, remove } from "firebase/database";
 import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
@@ -12,6 +12,8 @@ import {
 } from "firebase/auth";
 import { ref as sRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import * as ImagePicker from 'expo-image-picker';
+import { Alert } from "react-native"; // Você usou Alert.alert() mas não importou
+import { fetchAndActivate, getBoolean } from "firebase/remote-config"; 
 
 const lightTheme = { bg: "#f4f6fb", card: "#ffffff", text: "#111" };
 const darkTheme = { bg: "#121212", card: "#1e1e1e", text: "#ffffff" };
@@ -29,13 +31,31 @@ export default function App() {
   const [imageUri, setImageUri] = useState(null);
   const [imageDims, setImageDims] = useState({ width: 1, height: 1 });
   const [loading, setLoading] = useState(false);
+  const [isUploadEnabled, setIsUploadEnabled] = useState(true); 
 
   const theme = dark ? darkTheme : lightTheme;
 
+  
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
-    return unsubscribe;
-  }, []);
+
+  // 2. Busca a Flag imediatamente ao abrir o app
+  const syncRemoteConfig = async () => {
+    try {
+      // Força a ativação dos valores mais recentes
+      await fetchAndActivate(remoteConfig);
+      const status = getBoolean(remoteConfig, "enable_image_upload");
+      console.log("Valor da Flag no Firebase:", status);
+      setIsUploadEnabled(status);
+    } catch (err) {
+      console.error("Erro ao sincronizar Remote Config:", err);
+    }
+  };
+
+  syncRemoteConfig();
+  return unsubscribe;
+}, []);
 
   useEffect(() => {
     if (!user) return;
@@ -79,36 +99,39 @@ export default function App() {
 
   const createTask = async () => {
     if (!newTask) return;
-  setLoading(true);
-  let url = null;
+    setLoading(true);
+    let url = null;
+    let finalAspectRatio = 1;
 
-  if (imageUri) {
-    try {
-      const response = await fetch(imageUri);
-      const blob = await response.blob();
-      
-      // 🔍 Verificação local antes de gastar internet
-      if (blob.size > 5 * 1024 * 1024) {
-        alert("A imagem é muito pesada (limite 5MB).");
-        setLoading(false);
-        return;
+    // Só tenta upload se a Feature Flag permitir e houver imagem
+    if (imageUri && isUploadEnabled) {
+      try {
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        
+        // Verificação de segurança de tamanho (5MB)
+        if (blob.size > 5 * 1024 * 1024) {
+          Alert.alert("Erro", "A imagem é muito grande (Máx 5MB)");
+          setLoading(false);
+          return;
+        }
+
+        const filename = `${Date.now()}.jpg`;
+        const storageRef = sRef(storage, `images/${user.uid}/${filename}`);
+        await uploadBytes(storageRef, blob);
+        url = await getDownloadURL(storageRef);
+        finalAspectRatio = imageDims.width / imageDims.height;
+      } catch (e) { 
+        console.log(e);
+        Alert.alert("Erro", "Falha no upload da imagem.");
       }
-
-      const filename = `${Date.now()}.jpg`;
-      const storageRef = sRef(storage, `images/${user.uid}/${filename}`);
-      await uploadBytes(storageRef, blob);
-      url = await getDownloadURL(storageRef);
-    } catch (e) { 
-      console.log("Erro no upload", e);
-      alert("Falha no upload. Talvez o arquivo seja grande demais.");
     }
-  }
 
     push(ref(db, `tasks/${user.uid}`), {
       title: newTask,
       completed: false,
       imageUrl: url,
-      aspectRatio: ratio 
+      aspectRatio: finalAspectRatio
     });
 
     setNewTask("");
@@ -174,9 +197,12 @@ export default function App() {
           style={[styles.input, { flex: 1, backgroundColor: theme.card, color: theme.text }]}
           value={newTask} onChangeText={setNewTask}
         />
-        <TouchableOpacity onPress={pickImage} style={styles.imageIcon}>
-          <Text style={{ fontSize: 24 }}>{imageUri ? "✅" : "📷"}</Text>
-        </TouchableOpacity>
+        {/* Renderização Condicional via Feature Flag */}
+        {isUploadEnabled && (
+          <TouchableOpacity onPress={pickImage} style={styles.imageIcon}>
+            <Text style={{ fontSize: 24 }}>{imageUri ? "✅" : "📷"}</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <FlatList
