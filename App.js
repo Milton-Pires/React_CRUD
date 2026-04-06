@@ -14,7 +14,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
-  SafeAreaView,
 } from "react-native";
 
 import { db, auth, storage } from "./firebaseConfig";
@@ -201,15 +200,23 @@ export default function App() {
     setEditText("");
   };
 
+  // Corrigido: usa window.confirm no web, Alert.alert no mobile
   const deleteTask = (id) => {
-    Alert.alert("Excluir", "Tem certeza que deseja excluir esta tarefa?", [
-      { text: "Cancelar", style: "cancel" },
-      {
-        text: "Excluir",
-        style: "destructive",
-        onPress: () => remove(ref(db, `tasks/${user.uid}/${id}`)),
-      },
-    ]);
+    if (Platform.OS === "web") {
+      const confirmed = window.confirm("Tem certeza que deseja excluir esta tarefa?");
+      if (confirmed) {
+        remove(ref(db, `tasks/${user.uid}/${id}`));
+      }
+    } else {
+      Alert.alert("Excluir", "Tem certeza que deseja excluir esta tarefa?", [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Excluir",
+          style: "destructive",
+          onPress: () => remove(ref(db, `tasks/${user.uid}/${id}`)),
+        },
+      ]);
+    }
   };
 
   // -------------------------------------------------------------------------
@@ -220,7 +227,7 @@ export default function App() {
       <AdminScreen
         onClose={() => setShowAdmin(false)}
         theme={theme}
-        user={user}  // ← passa o user para o AdminScreen
+        user={user}
       />
     );
   }
